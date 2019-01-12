@@ -27,7 +27,50 @@ import androidx.appcompat.app.AlertDialog
 // Author: TheEvilRoot
 //
 
+/** UI Utilities **/
+
+fun Context.toast(
+    message: Any,
+    time: Int = Toast.LENGTH_SHORT) {
+    Toast.makeText(this, message.toString(), time).show()
+}
+
 inline fun <reified T: Activity> Context.open() = startActivity(Intent(this, T::class.java))
+
+/** Other stuff **/
+
+fun Context.unwrapStringRes(@StringRes id: Int?, defaultString: String?): String? {
+    id?.let {
+        return try {
+            getString(it)
+        } catch (e: Resources.NotFoundException) {
+            defaultString
+        }
+    }
+
+    return defaultString
+}
+
+inline fun withDebug(body: () -> Unit) {
+    if (BuildConfig.DEBUG) {
+        body()
+    }
+}
+
+@SuppressLint("MissingPermission")
+fun Context.checkNetwork(): Boolean {
+    using(permissions = setOf(Manifest.permission.ACCESS_NETWORK_STATE), block = {
+        val connectivityService = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkInfo = connectivityService.activeNetworkInfo
+        networkInfo?.let {
+            return it.detailedState == NetworkInfo.DetailedState.CONNECTED ||
+                    it.detailedState == NetworkInfo.DetailedState.CONNECTING
+        } ?: return false
+    }, denied = {
+        return false
+    })
+    return false
+}
 
 inline fun EditText.afterTextChanged(crossinline listener: (String) -> Unit) {
     addTextChangedListener(object: TextWatcher {
@@ -51,35 +94,44 @@ inline fun EditText.afterTextChanged(crossinline listener: (String) -> Unit) {
     })
 }
 
+/** Permission and capability utilities **/
+
+fun Context.checkPermissionIsGranted(permission: String): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        checkSelfPermission(permission)
+    } else {
+        packageManager.checkPermission(permission, packageName)
+    } == PackageManager.PERMISSION_GRANTED
+}
+
+enum class UsingResult { OK, SDK_ERROR, PERMISSION_ERROR }
+
+inline fun Context.using(sdk: Int? = null, permissions: Set<String> = emptySet(),  denied: Context.(UsingResult) -> Unit = { }, block: Context.() -> Unit) {
+    if (sdk != null && Build.VERSION.SDK_INT < sdk) return denied(UsingResult.SDK_ERROR)
+
+    if (permissions.any { !checkPermissionIsGranted(it) }) {
+        return denied(UsingResult.PERMISSION_ERROR)
+    }
+
+    block()
+}
+
 inline fun withSupport(version: Int, func: () -> Unit) {
     if (Build.VERSION.SDK_INT >= version) {
         func()
     }
 }
 
-inline fun withDebug(body: () -> Unit) {
-    if (BuildConfig.DEBUG) {
-        body()
-    }
-}
+/** Dialog utilities **/
 
-fun Context.toast(
-    message: Any,
-    time: Int = Toast.LENGTH_SHORT) {
-    Toast.makeText(this, message.toString(), time).show()
-}
+fun AlertDialog.positiveButton(): Button?
+        = getButton(AlertDialog.BUTTON_POSITIVE)
 
-fun Context.unwrapStringRes(@StringRes id: Int?, defaultString: String?): String? {
-    id?.let {
-        return try {
-            getString(it)
-        } catch (e: Resources.NotFoundException) {
-            defaultString
-        }
-    }
+fun AlertDialog.negativeButton(): Button?
+        = getButton(AlertDialog.BUTTON_NEGATIVE)
 
-    return defaultString
-}
+fun AlertDialog.neutralButton(): Button?
+        = getButton(AlertDialog.BUTTON_NEUTRAL)
 
 fun Context.messageDialog(
     title: String,
@@ -116,14 +168,14 @@ fun Context.messageDialog(
 fun <T> Context.listDialog(
     title: String,
     items: Array<T>,
-    itemInliner: (T, Int) -> String = { t, _ -> t.toString() },
+    inlineItem: (T, Int) -> String = { t, _ -> t.toString() },
     itemListener: (DialogInterface, T, Int) -> Unit = { _, _, _ -> },
     cancelable: Boolean = false
 ) {
     val dialogBuilder = AlertDialog.Builder(this)
     dialogBuilder.setTitle(title)
 
-    val inlinedItems = items.mapIndexed { index, t -> itemInliner(t, index) }.toTypedArray()
+    val inlinedItems = items.mapIndexed { index, t -> inlineItem(t, index) }.toTypedArray()
     dialogBuilder.setItems(inlinedItems) { di, index ->
         itemListener(di, items[index], index)
     }
@@ -194,25 +246,7 @@ fun Context.inputDialog(
     dialog.show()
 }
 
-fun Context.checkPermissionIsGranted(permission: String): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        checkSelfPermission(permission)
-    } else {
-        packageManager.checkPermission(permission, packageName)
-    } == PackageManager.PERMISSION_GRANTED
-}
-
-enum class UsingResult { OK, SDK_ERROR, PERMISSION_ERROR }
-
-inline fun Context.using(sdk: Int? = null, permissions: Set<String> = emptySet(),  denied: Context.(UsingResult) -> Unit = { }, block: Context.() -> Unit) {
-    if (sdk != null && Build.VERSION.SDK_INT < sdk) return denied(UsingResult.SDK_ERROR)
-
-    if (permissions.any { !checkPermissionIsGranted(it) }) {
-        return denied(UsingResult.PERMISSION_ERROR)
-    }
-
-    block()
-}
+/** Logger utilities **/
 
 fun Unit.info(message: String) {
     Log.i(javaClass.simpleName, message)
@@ -226,29 +260,19 @@ fun Unit.debug(message: String) {
     withDebug { Log.d(javaClass.simpleName, message) }
 }
 
-@SuppressLint("MissingPermission")
-fun Context.checkNetwork(): Boolean {
-    using(permissions = setOf(Manifest.permission.ACCESS_NETWORK_STATE), block = {
-        val connectivityService = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val networkInfo = connectivityService.activeNetworkInfo
-        networkInfo?.let {
-            return it.detailedState == NetworkInfo.DetailedState.CONNECTED ||
-                    it.detailedState == NetworkInfo.DetailedState.CONNECTING
-        } ?: return false
-    }, denied = {
-        return false
-    })
-    return false
+/** View utilities **/
+
+fun View.isVisible(): Boolean =
+    visibility == View.VISIBLE && alpha > 0F && scaleX > 0F && scaleY > 0F
+
+/** Animations **/
+
+fun View.scaleHighlight(maxScaleMultiplier: Float = 2F) {
+    animate().scaleXBy(1F).scaleYBy(1F).scaleX(maxScaleMultiplier).scaleY(maxScaleMultiplier).setDuration(300)
+        .withEndAction {
+            animate().scaleX(1F).scaleY(1F).setDuration(300).start()
+        }.start()
 }
-
-fun AlertDialog.positiveButton(): Button?
-        = getButton(AlertDialog.BUTTON_POSITIVE)
-
-fun AlertDialog.negativeButton(): Button?
-        = getButton(AlertDialog.BUTTON_NEGATIVE)
-
-fun AlertDialog.neutralButton(): Button?
-        = getButton(AlertDialog.BUTTON_NEUTRAL)
 
 inline fun View.fadeHide(time: Long = 2000, crossinline finish: () -> Unit = { }) {
     animate().setDuration(time).alpha(0F).withEndAction { finish() }.start()
@@ -271,14 +295,4 @@ inline fun View.scaleShow(time: Long = 2000, forceZeroScale: Boolean = true, cro
 
 inline fun View.scaleHide(time: Long = 2000, crossinline finish: () -> Unit = { }) {
     animate().scaleX(0F).scaleY(0F).setDuration(time).withEndAction { finish() }.start()
-}
-
-fun View.isVisible(): Boolean =
-        visibility == View.VISIBLE && alpha > 0F && scaleX > 0F && scaleY > 0F
-
-fun View.scaleHighlight(maxScaleMultiplier: Float = 2F) {
-    animate().scaleXBy(1F).scaleYBy(1F).scaleX(maxScaleMultiplier).scaleY(maxScaleMultiplier).setDuration(300)
-        .withEndAction {
-            animate().scaleX(1F).scaleY(1F).setDuration(300).start()
-        }.start()
 }
