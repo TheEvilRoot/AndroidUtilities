@@ -16,10 +16,14 @@ import android.os.Build
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
+import androidx.annotation.LayoutRes
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
+import androidx.recyclerview.widget.RecyclerView
 
 
 //
@@ -295,4 +299,25 @@ inline fun View.scaleShow(time: Long = 2000, forceZeroScale: Boolean = true, cro
 
 inline fun View.scaleHide(time: Long = 2000, crossinline finish: () -> Unit = { }) {
     animate().scaleX(0F).scaleY(0F).setDuration(time).withEndAction { finish() }.start()
+}
+
+/** RecyclerView Utilities **/
+
+class BasicRecyclerViewAdapter<T>(
+    private val getter: (Int) -> T,
+    private val countGetter: () -> Int,
+    @LayoutRes
+    private val layoutRes: Int,
+    private val binding: View.(Int, T, BasicRecyclerViewAdapter.BasicViewHolder<T>) -> Unit): RecyclerView.Adapter<BasicRecyclerViewAdapter.BasicViewHolder<T>>() {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BasicViewHolder<T> =
+        BasicViewHolder(LayoutInflater.from(parent.context).
+            inflate(layoutRes, parent, false))
+
+    override fun getItemCount(): Int =
+        countGetter()
+
+    override fun onBindViewHolder(holder: BasicViewHolder<T>, position: Int) =
+            binding(holder.itemView, position, getter(position), holder)
+
+    class BasicViewHolder<T>(itemView: View): RecyclerView.ViewHolder(itemView)
 }
